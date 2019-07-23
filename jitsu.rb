@@ -77,15 +77,11 @@ if checkIdentity
   end
 end
 
-puts "Start modification"
+# ... some processing ...
 
-# ... some modification ... 
+puts "Writing to " + filename + ".reconstructed"
 
-puts "End modification"
-
-puts "Writing to " + filename + ".modified"
-
-File.open(filename + ".modified", "w") do |f|
+File.open(filename + ".reconstructed", "w") do |f|
   arr.each{|x|
     Marshal.dump(x, f)
   }

@@ -53,11 +53,11 @@ pub enum Key {
 }
 
 named_args!(parse_nbytes_int_le(length : u8)<u64>, 
-    do_parse!(
-        s : take!(length) >>
-        (LittleEndian::read_uint(s, length as usize))
-    )
-  );
+  do_parse!(
+    s : take!(length) >>
+    (LittleEndian::read_uint(s, length as usize))
+  )
+);
 
 named!(parse_byte<u8>, map!(take!(1), |c| c[0]));
 
@@ -316,6 +316,20 @@ named!(pub parse_marshal<Marshal>, do_parse!(
     (Marshal { version_major : maj, version_minor : min, obj : obj })
 ));
 
+/// 
+/// Replace all `KeyPointer` in given Object to `KeyValue`.
+/// 
+/// Usage: ```rust
+///   assert_eq!(
+///     flatten_keypointer(parse_marshal(b"\x04\x08\x5b\x09\x3a\x08\x61\x61\x61\x3b\x00\x3b\x00\x3b\x00").unwrap().1.obj, &mut vec![]),
+///     Object::List(vec![
+///       Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+///       Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+///       Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+///       Object::Symbol(Key::KeyValue(b"aaa".to_vec()))
+///     ])
+///   );
+/// ```
 pub fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object {
   let single_map = |x : Vec<Object>, kt : &mut Vec<Vec<u8>>|{
     x.into_iter().map(|a| flatten_keypointer(a, kt)).collect()
@@ -392,6 +406,19 @@ fn test_list() {
   assert_eq!(
     parse_list(b"[\x06F"),
     Ok((emp, Object::List(vec![Object::False])))
+  );
+}
+
+#[test]
+fn test_symbol() {
+  assert_eq!(
+    flatten_keypointer(parse_marshal(b"\x04\x08\x5b\x09\x3a\x08\x61\x61\x61\x3b\x00\x3b\x00\x3b\x00").unwrap().1.obj, &mut vec![]),
+    Object::List(vec![
+      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+      Object::Symbol(Key::KeyValue(b"aaa".to_vec()))
+    ])
   );
 }
 
