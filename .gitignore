@@ -45,3 +45,5 @@ Cargo.lock
 
 marshals/
 in.marshal
+
+log.txt

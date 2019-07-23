@@ -34,6 +34,8 @@ pub enum Object {
     Str(Vec<u8>), // ASCII-8BIT encoding
     StrI { content : Vec<u8>, metadata : Vec<(Object, Object)> }, // Other encoding (ASCII, UTF-8, CP932, ...)
     Instance { name : Key, map : Vec<(Object, Object)> },
+    InstanceFromString { name : Key, data : Vec<u8>},
+    InstanceFromArray { name : Key, data : Vec<Object>},
     True,
     False,
     Pointer(u64),
@@ -240,6 +242,23 @@ named!(parse_instance<Object>, do_parse!(
     (Object::Instance{name : key, map : relations})
 ));
 
+named!(parse_instance_from_string<Object>, do_parse!(
+    tag!(b"u") >>
+    key : parse_key >>
+    vi : parse_varint >>
+    data : take!(vi) >>
+    (Object::InstanceFromString{name : key, data : data.to_vec()})
+));
+
+named!(parse_instance_from_array<Object>, do_parse!(
+    tag!(b"U") >>
+    key : parse_key >>
+    tag!(b"[") >>
+    vi : parse_varint >>
+    res : many_n!(vi, parse_object) >>
+    (Object::InstanceFromArray{name : key, data : res})
+));
+
 named!(parse_pointer<Object>, do_parse!(
     tag!(b"@") >>
     vi : parse_varint >>
@@ -270,11 +289,6 @@ named!(parse_class<Object>, do_parse!(
     (Object::Class(name.to_vec()))
 ));
 
-fn unhandled(input: &[u8]) -> IResult<&[u8], Object> {
-  println!("Unhandled: {:?}", input[0]);
-  Err(nom::Err::Failure((input, nom::error::ErrorKind::Alt)))
-}
-
 named!(parse_object<Object>, alt!(
   parse_int |
   parse_long_positive |
@@ -286,12 +300,13 @@ named!(parse_object<Object>, alt!(
   parse_true |
   parse_false |
   parse_instance |
+  parse_instance_from_string |
+  parse_instance_from_array |
   parse_pointer |
   parse_float |
   parse_nil |
   parse_symbol |
-  parse_class |
-  unhandled
+  parse_class
 ));
 
 named!(parse_marshal<Marshal>, do_parse!(
@@ -301,25 +316,82 @@ named!(parse_marshal<Marshal>, do_parse!(
     (Marshal { version_major : maj, version_minor : min, obj : obj })
 ));
 
+fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object {
+  let single_map = |x : Vec<Object>, kt : &mut Vec<Vec<u8>>|{
+    x.into_iter().map(|a| flatten_keypointer(a, kt)).collect()
+  };
+
+  let pair_map = |x : Vec<(Object, Object)>, kt : &mut Vec<Vec<u8>>|{
+    x.into_iter().map(|(a, b)| (flatten_keypointer(a, kt), flatten_keypointer(b, kt))).collect()
+  };
+
+  let k_proc = |x : Key, kt : &mut Vec<Vec<u8>>|{match x {
+    Key::KeyPointer(i) => {
+      let v = &kt[i as usize];
+      Key::KeyValue(v.to_vec())
+    },
+    Key::KeyValue(v) => {
+      kt.push(v.to_vec());
+      Key::KeyValue(v.to_vec())
+    }
+  }};
+
+  let kt = key_table;
+
+  match obj {
+    Object::List(vo) => 
+    Object::List(single_map(vo, kt)),
+    Object::Hash(vt) => 
+    Object::Hash(pair_map(vt, kt)),
+    Object::StrI { content : vu, metadata : vt } => 
+    Object::StrI { content : vu, metadata : pair_map(vt, kt) },
+    Object::Instance { name : k, map : vt } => 
+    Object::Instance { name : k_proc(k, kt), map : pair_map(vt, kt) },
+    Object::InstanceFromString { name : k, data : vu } => 
+    Object::InstanceFromString { name : k_proc(k, kt), data : vu},
+    Object::InstanceFromArray { name : k, data : vo } => 
+    Object::InstanceFromArray { name : k_proc(k, kt), data : single_map(vo, kt) },
+    Object::Symbol(k) => Object::Symbol(k_proc(k, kt)),
+    _  => obj
+  }
+}
+
 fn main() -> std::io::Result<()>  {
   let mut file = File::open("in.marshal")?;
   let mut contents = vec![];
   file.read_to_end(&mut contents)?;
-  let result = parse_marshal(&contents);
-  println!("{:?}", result);
-  Ok(())
+  match parse_marshal(&contents) {
+    Ok((remain, result1)) => {
+      match parse_marshal(&remain) {
+        Ok((_, result2)) => {
+          println!("{:?}", flatten_keypointer(result1.obj, &mut vec![]));
+          println!("{:?}", flatten_keypointer(result2.obj, &mut vec![]));
+          Ok(())
+        },
+        Err(_) => Ok(())
+      }
+    },
+    Err(_) => Ok(())
+  }
 }
 
 // useful script:
 //   puts(Marshal.dump(".....").unpack("H*")[0].gsub(/(..)/, '\\x\1'))
 
 #[test]
+
 fn test_list() {
   let emp : &[u8] = b"";
+
   assert_eq!(
     parse_list(b"[\x00"),
     Ok((emp, Object::List(vec![])))
-  )
+  );
+
+  assert_eq!(
+    parse_list(b"[\x06F"),
+    Ok((emp, Object::List(vec![Object::False])))
+  );
 }
 
 #[test]
