@@ -100,7 +100,7 @@ fn parse_varint(input: &[u8]) -> IResult<&[u8], i64> {
 ///
 /// Slightly modified version of many_m_n(k, k)
 /// Do nothing when k=0
-pub fn many_n<I, O, E, F>(n: i64, f: F) -> impl Fn(I) -> IResult<I, Vec<O>, E>
+fn many_n<I, O, E, F>(n: i64, f: F) -> impl Fn(I) -> IResult<I, Vec<O>, E>
 where
   I: Clone + PartialEq,
   F: Fn(I) -> IResult<I, O, E>,
@@ -289,7 +289,7 @@ named!(parse_class<Object>, do_parse!(
     (Object::Class(name.to_vec()))
 ));
 
-named!(parse_object<Object>, alt!(
+named!(pub parse_object<Object>, alt!(
   parse_int |
   parse_long_positive |
   parse_long_negative |
@@ -309,14 +309,14 @@ named!(parse_object<Object>, alt!(
   parse_class
 ));
 
-named!(parse_marshal<Marshal>, do_parse!(
+named!(pub parse_marshal<Marshal>, do_parse!(
     maj : parse_byte >>
     min : parse_byte >>
     obj : parse_object >>
     (Marshal { version_major : maj, version_minor : min, obj : obj })
 ));
 
-fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object {
+pub fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object {
   let single_map = |x : Vec<Object>, kt : &mut Vec<Vec<u8>>|{
     x.into_iter().map(|a| flatten_keypointer(a, kt)).collect()
   };
@@ -376,6 +376,7 @@ fn main() -> std::io::Result<()>  {
 }
 
 // useful script:
+// encoding
 //   puts(Marshal.dump(".....").unpack("H*")[0].gsub(/(..)/, '\\x\1'))
 
 #[test]

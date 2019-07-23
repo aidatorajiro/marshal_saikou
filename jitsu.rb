@@ -1,5 +1,3 @@
-# VX_ACE ... ruby1.9.2-p0
-
 arr = []
 
 filename = "in.marshal"
