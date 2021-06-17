@@ -342,18 +342,12 @@ pub fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object
   let kt = key_table;
 
   match obj {
-    Object::List(vo) => 
-    Object::List(single_map(vo, kt)),
-    Object::Hash(vt) => 
-    Object::Hash(pair_map(vt, kt)),
-    Object::StrI { content : vu, metadata : vt } => 
-    Object::StrI { content : vu, metadata : pair_map(vt, kt) },
-    Object::Instance { name : k, map : vt } => 
-    Object::Instance { name : k_proc(k, kt), map : pair_map(vt, kt) },
-    Object::InstanceFromString { name : k, data : vu } => 
-    Object::InstanceFromString { name : k_proc(k, kt), data : vu},
-    Object::InstanceFromArray { name : k, data : vo } => 
-    Object::InstanceFromArray { name : k_proc(k, kt), data : single_map(vo, kt) },
+    Object::List(vo) => Object::List(single_map(vo, kt)),
+    Object::Hash(vt) => Object::Hash(pair_map(vt, kt)),
+    Object::StrI { content : vu, metadata : vt } => Object::StrI { content : vu, metadata : pair_map(vt, kt) },
+    Object::Instance { name : k, map : vt } => Object::Instance { name : k_proc(k, kt), map : pair_map(vt, kt) },
+    Object::InstanceFromString { name : k, data : vu } => Object::InstanceFromString { name : k_proc(k, kt), data : vu},
+    Object::InstanceFromArray { name : k, data : vo } => Object::InstanceFromArray { name : k_proc(k, kt), data : single_map(vo, kt) },
     Object::Symbol(k) => Object::Symbol(k_proc(k, kt)),
     _  => obj
   }
