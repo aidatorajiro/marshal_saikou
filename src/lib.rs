@@ -1,16 +1,5 @@
-#[macro_use]
-extern crate nom;
-extern crate byteorder;
 
-use std::{fs::File, io::Read};
-use std::{num::ParseIntError};
-
-use nom::{
-  IResult,
-  bytes::complete::{take, tag},
-  combinator::{map, map_res},
-  sequence::tuple,
-  error::ParseError};
+use nom::{IResult, error::ParseError, named, named_args, alt, map, take, do_parse, tag};
 
 use num_bigint::{BigInt, Sign};
 
@@ -84,11 +73,11 @@ fn parse_varint(input: &[u8]) -> IResult<&[u8], i64> {
     let (input, first_byte) = parse_byte(input)?;
     match first_byte {
         0 => Ok((input, 0)),
-        1 ... 4 => parse_nbytes_int_le(input, first_byte)
+        1..=4 => parse_nbytes_int_le(input, first_byte)
                    .map(|(s, i)| (s, i as i64)),
-        5 ... 0x7f => Ok((input, (first_byte - 5) as i64)),
-        0x80 ... 0xfb => Ok((input, (first_byte as i64) - 0xfb)),
-        0xfc ... 0xff =>
+        5..=0x7f => Ok((input, (first_byte - 5) as i64)),
+        0x80..=0xfb => Ok((input, (first_byte as i64) - 0xfb)),
+        0xfc..=0xff =>
           {
             let complement = 0xff - first_byte + 1;
             parse_nbytes_int_le(input, complement)
@@ -370,190 +359,196 @@ pub fn flatten_keypointer(obj : Object, key_table : &mut Vec<Vec<u8>>) -> Object
   }
 }
 
-fn main() -> std::io::Result<()>  {
-  let mut file = File::open("in.marshal")?;
-  let mut contents = vec![];
-  file.read_to_end(&mut contents)?;
-  match parse_marshal(&contents) {
-    Ok((remain, result1)) => {
-      match parse_marshal(&remain) {
-        Ok((_, result2)) => {
-          println!("{:?}", flatten_keypointer(result1.obj, &mut vec![]));
-          println!("{:?}", flatten_keypointer(result2.obj, &mut vec![]));
-          Ok(())
-        },
-        Err(_) => Ok(())
-      }
-    },
-    Err(_) => Ok(())
-  }
-}
+// fn main() -> std::io::Result<()>  {
+//   let mut file = File::open("in.marshal")?;
+//   let mut contents = vec![];
+//   file.read_to_end(&mut contents)?;
+//   match parse_marshal(&contents) {
+//     Ok((remain, result1)) => {
+//       match parse_marshal(&remain) {
+//         Ok((_, result2)) => {
+//           println!("{:?}", flatten_keypointer(result1.obj, &mut vec![]));
+//           println!("{:?}", flatten_keypointer(result2.obj, &mut vec![]));
+//           Ok(())
+//         },
+//         Err(_) => Ok(())
+//       }
+//     },
+//     Err(_) => Ok(())
+//   }
+// }
 
 // useful script:
 // encoding
 //   puts(Marshal.dump(".....").unpack("H*")[0].gsub(/(..)/, '\\x\1'))
 
-#[test]
+#[cfg(test)]
+mod tests {
+  use std::num::ParseIntError;
 
-fn test_list() {
-  let emp : &[u8] = b"";
+  use super::*;
 
-  assert_eq!(
-    parse_list(b"[\x00"),
-    Ok((emp, Object::List(vec![])))
-  );
-
-  assert_eq!(
-    parse_list(b"[\x06F"),
-    Ok((emp, Object::List(vec![Object::False])))
-  );
-}
-
-#[test]
-fn test_symbol() {
-  assert_eq!(
-    flatten_keypointer(parse_marshal(b"\x04\x08\x5b\x09\x3a\x08\x61\x61\x61\x3b\x00\x3b\x00\x3b\x00").unwrap().1.obj, &mut vec![]),
-    Object::List(vec![
-      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
-      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
-      Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
-      Object::Symbol(Key::KeyValue(b"aaa".to_vec()))
-    ])
-  );
-}
-
-#[test]
-fn test_hash() {
-  
-}
-
-#[test]
-fn test_string() {
-  let emp : &[u8] = b"";
-
-  // Marshal.dump("テストだよ")
-  assert_eq!(
-    parse_marshal(b"\x04\x08\x49\x22\x14\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88\xe3\x81\xa0\xe3\x82\x88\x06\x3a\x06\x45\x54"),
-    Ok((emp, Marshal {
-      version_major: 4,
-      version_minor: 8,
-      obj: Object::StrI {
-        content : "テストだよ".as_bytes().to_vec(),
-        metadata : vec![
-          (
-            Object::Symbol(Key::KeyValue("E".as_bytes().to_vec())),
-            Object::True
-          )
-        ]
-      }
-    }))
-  );
-
-  // Marshal.dump("テストだよ".force_encoding("cp932"))
-  assert_eq!(
-    parse_marshal(b"\x04\x08\x49\x22\x14\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88\xe3\x81\xa0\xe3\x82\x88\x06\x3a\x0d\x65\x6e\x63\x6f\x64\x69\x6e\x67\x22\x10\x57\x69\x6e\x64\x6f\x77\x73\x2d\x33\x31\x4a"),
-    Ok((emp, Marshal {
-      version_major: 4,
-      version_minor: 8,
-      obj: Object::StrI {
-        content : "テストだよ".as_bytes().to_vec(),
-        metadata : vec![
-          (
-            Object::Symbol(Key::KeyValue("encoding".as_bytes().to_vec())),
-            Object::Str("Windows-31J".as_bytes().to_vec())
-          )
-        ]
-      }
-    })));
-
-    // Marshal.dump(["abc", "def", "ghi"])
+  #[test]
+  fn test_list() {
+    let emp : &[u8] = b"";
 
     assert_eq!(
-    parse_marshal(b"\x04\x08\x5b\x08\x49\x22\x08\x61\x62\x63\x06\x3a\x06\x45\x54\x49\x22\x08\x64\x65\x66\x06\x3b\x00\x54\x49\x22\x08\x67\x68\x69\x06\x3b\x00\x54"),
-    Ok((emp, Marshal {
-      version_major: 4,
-      version_minor: 8,
-      obj: Object::List(vec![
-        Object::StrI {
-          content : "abc".as_bytes().to_vec(),
+      parse_list(b"[\x00"),
+      Ok((emp, Object::List(vec![])))
+    );
+
+    assert_eq!(
+      parse_list(b"[\x06F"),
+      Ok((emp, Object::List(vec![Object::False])))
+    );
+  }
+
+  #[test]
+  fn test_symbol() {
+    assert_eq!(
+      flatten_keypointer(parse_marshal(b"\x04\x08\x5b\x09\x3a\x08\x61\x61\x61\x3b\x00\x3b\x00\x3b\x00").unwrap().1.obj, &mut vec![]),
+      Object::List(vec![
+        Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+        Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+        Object::Symbol(Key::KeyValue(b"aaa".to_vec())),
+        Object::Symbol(Key::KeyValue(b"aaa".to_vec()))
+      ])
+    );
+  }
+
+  #[test]
+  fn test_hash() {
+    
+  }
+
+  #[test]
+  fn test_string() {
+    let emp : &[u8] = b"";
+
+    // Marshal.dump("テストだよ")
+    assert_eq!(
+      parse_marshal(b"\x04\x08\x49\x22\x14\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88\xe3\x81\xa0\xe3\x82\x88\x06\x3a\x06\x45\x54"),
+      Ok((emp, Marshal {
+        version_major: 4,
+        version_minor: 8,
+        obj: Object::StrI {
+          content : "テストだよ".as_bytes().to_vec(),
           metadata : vec![
             (
               Object::Symbol(Key::KeyValue("E".as_bytes().to_vec())),
               Object::True
             )
           ]
-        },
-        Object::StrI {
-          content : "def".as_bytes().to_vec(),
+        }
+      }))
+    );
+
+    // Marshal.dump("テストだよ".force_encoding("cp932"))
+    assert_eq!(
+      parse_marshal(b"\x04\x08\x49\x22\x14\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88\xe3\x81\xa0\xe3\x82\x88\x06\x3a\x0d\x65\x6e\x63\x6f\x64\x69\x6e\x67\x22\x10\x57\x69\x6e\x64\x6f\x77\x73\x2d\x33\x31\x4a"),
+      Ok((emp, Marshal {
+        version_major: 4,
+        version_minor: 8,
+        obj: Object::StrI {
+          content : "テストだよ".as_bytes().to_vec(),
           metadata : vec![
             (
-              Object::Symbol(Key::KeyPointer(0)),
-              Object::True
-            )
-          ]
-        },
-        Object::StrI {
-          content : "ghi".as_bytes().to_vec(),
-          metadata : vec![
-            (
-              Object::Symbol(Key::KeyPointer(0)),
-              Object::True
+              Object::Symbol(Key::KeyValue("encoding".as_bytes().to_vec())),
+              Object::Str("Windows-31J".as_bytes().to_vec())
             )
           ]
         }
-      ])
+      })));
+
+      // Marshal.dump(["abc", "def", "ghi"])
+
+      assert_eq!(
+      parse_marshal(b"\x04\x08\x5b\x08\x49\x22\x08\x61\x62\x63\x06\x3a\x06\x45\x54\x49\x22\x08\x64\x65\x66\x06\x3b\x00\x54\x49\x22\x08\x67\x68\x69\x06\x3b\x00\x54"),
+      Ok((emp, Marshal {
+        version_major: 4,
+        version_minor: 8,
+        obj: Object::List(vec![
+          Object::StrI {
+            content : "abc".as_bytes().to_vec(),
+            metadata : vec![
+              (
+                Object::Symbol(Key::KeyValue("E".as_bytes().to_vec())),
+                Object::True
+              )
+            ]
+          },
+          Object::StrI {
+            content : "def".as_bytes().to_vec(),
+            metadata : vec![
+              (
+                Object::Symbol(Key::KeyPointer(0)),
+                Object::True
+              )
+            ]
+          },
+          Object::StrI {
+            content : "ghi".as_bytes().to_vec(),
+            metadata : vec![
+              (
+                Object::Symbol(Key::KeyPointer(0)),
+                Object::True
+              )
+            ]
+          }
+        ])
+      })));
+  }
+
+  #[test]
+  fn test_instance() {
+    
+  }
+
+  #[test]
+  fn test_parse_integer() {
+    let emp : &[u8] = b"";
+    assert_eq!(parse_marshal(b"\x04\x08\x69\x02\xFF\xFF"), Ok((emp, Marshal {
+      version_major: 4,
+      version_minor: 8,
+      obj: Object::Int(65535)
     })));
-}
+    assert_eq!(parse_marshal(b"\x04\x08\x5B\x06\x69\xFD\xB9\x0B\xEF"), Ok((emp, Marshal {
+      version_major: 4,
+      version_minor: 8,
+      obj: Object::List(vec![Object::Int(-1111111)])
+    })));
+    assert_eq!(parse_marshal(b"\x04\x08\x69\xF5"), Ok((emp, Marshal {
+      version_major: 4,
+      version_minor: 8,
+      obj: Object::Int(-6)
+    })));
+  }
 
-#[test]
-fn test_instance() {
-  
-}
+  #[test]
+  fn test_varint() {
+      fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+          (0..s.len())
+              .step_by(2)
+              .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+              .collect()
+      }
 
-#[test]
-fn test_parse_integer() {
-  let emp : &[u8] = b"";
-  assert_eq!(parse_marshal(b"\x04\x08\x69\x02\xFF\xFF"), Ok((emp, Marshal {
-    version_major: 4,
-    version_minor: 8,
-    obj: Object::Int(65535)
-  })));
-  assert_eq!(parse_marshal(b"\x04\x08\x5B\x06\x69\xFD\xB9\x0B\xEF"), Ok((emp, Marshal {
-    version_major: 4,
-    version_minor: 8,
-    obj: Object::List(vec![Object::Int(-1111111)])
-  })));
-  assert_eq!(parse_marshal(b"\x04\x08\x69\xF5"), Ok((emp, Marshal {
-    version_major: 4,
-    version_minor: 8,
-    obj: Object::Int(-6)
-  })));
-}
+      fn varint_check(bytes: &str, value: i64) {
+          assert_eq!(parse_varint(&decode_hex(bytes).unwrap()).unwrap().1, value);
+      }
 
-#[test]
-fn test_varint() {
-    fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-            .collect()
-    }
-
-    fn varint_check(bytes: &str, value: i64) {
-        assert_eq!(parse_varint(&decode_hex(bytes).unwrap()).unwrap().1, value);
-    }
-
-    varint_check("01ff", 255);
-    varint_check("02ffff", 65535);
-    varint_check("04ffffffff", 4294967295);
-    varint_check("05", 0);
-    varint_check("06", 1);
-    varint_check("07", 2);
-    varint_check("ff01", -255);
-    varint_check("fe0201", -65278);
-    varint_check("fd030201", -16711165);
-    varint_check("fc04030201", -4278058236);
-    varint_check("fb", 0);
-    varint_check("fa", -1);
-    varint_check("f9", -2);
+      varint_check("01ff", 255);
+      varint_check("02ffff", 65535);
+      varint_check("04ffffffff", 4294967295);
+      varint_check("05", 0);
+      varint_check("06", 1);
+      varint_check("07", 2);
+      varint_check("ff01", -255);
+      varint_check("fe0201", -65278);
+      varint_check("fd030201", -16711165);
+      varint_check("fc04030201", -4278058236);
+      varint_check("fb", 0);
+      varint_check("fa", -1);
+      varint_check("f9", -2);
+  }
 }
